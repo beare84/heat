@@ -45,8 +45,9 @@ resources:
           port_range_max: 9997
         - protocol: tcp
           direction: ingress
-          port_range_min: 8089
-          port_range_max: 8089
+          remote_ip_prefix: { get_attr: [internal_subnet0, cidr] }
+          port_range_min: 514
+          port_range_max: 514
 
   agent_port:
     type:        OS::Neutron::Port
@@ -85,6 +86,8 @@ resources:
             sleep 60;
             /opt/puppetlabs/puppet/bin/puppet config set server $puppetserver;
             yum update -y
+            mkdir /srv/log
+            chcon --reference /var/log /srv/log
             systemctl start puppet;
             sleep 120;
             reboot
