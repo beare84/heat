@@ -1,6 +1,6 @@
 heat_template_version: rocky
 
-description: 'Splunk forwarder template'
+description: 'Splunk enterprise template'
 
 parameters:
   puppetserver:          {type: 'string', default: 'puppetserver.openstacklocal'}
@@ -9,14 +9,14 @@ parameters:
   linux-admin-password:  {type: 'string', default: 'password'}
   ntp-server:            {type: 'string', default: 'pool.ntp.org'}
   # Change these values for new clients
-  agent:                 {type: 'string', default: 'splunkforwarder.openstacklocal'}
-  agent-port-name:       {type: 'string', default: 'splunkforwarder1-port'}
-  agent-sec-group:       {type: 'string', default: 'splunkforwarder1-sec-group'}
+  agent:                 {type: 'string', default: 'splunkenterprise.openstacklocal'}
+  agent-port-name:       {type: 'string', default: 'splunkenterprise1-port'}
+  agent-sec-group:       {type: 'string', default: 'splunkenterprise1-sec-group'}
   agent-ip:              {type: 'string', default: '192.168.102.52'}
 
 resources:
 
-  splunkforwarder_sec_group:
+  splunkenterprise_sec_group:
     type: OS::Neutron::SecurityGroup
     properties:
       name: { get_param: agent-sec-group }
@@ -52,11 +52,11 @@ resources:
     type:        OS::Neutron::Port
     properties:
       name:      { get_param: agent-port-name }
-      security_groups: [ { get_resource: splunkforwarder_sec_group } ]
+      security_groups: [ { get_resource: splunkenterprise_sec_group } ]
       network: internal_network0
       fixed_ips: [{"subnet": "internal_subnet0", "ip_address": {get_param: agent-ip}}]
 
-  splunkforwarder0:
+  splunkenterprise0:
     type:           OS::Nova::Server
     depends_on:     agent_port
     properties:

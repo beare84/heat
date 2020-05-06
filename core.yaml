@@ -97,6 +97,11 @@ resources:
           remote_ip_prefix: { get_attr: [internal_subnet0, cidr] }
           port_range_min: 514
           port_range_max: 514
+        - protocol: tcp
+          direction: ingress
+          remote_ip_prefix: 0.0.0.0/0
+          port_range_min: 123
+          port_range_max: 123
 
   puppetserver_port:
     type:        OS::Neutron::Port
