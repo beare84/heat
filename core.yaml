@@ -1,0 +1,155 @@
+heat_template_version: rocky
+
+description: 'linux puppet server and core networking template'
+
+parameters:
+  puppetserver:          {type: 'string', default: 'puppetserver.openstacklocal'}
+  puppetserver-ip:       {type: 'string', default: '192.168.102.50'}
+  linux-admin:           {type: 'string', default: 'user'}
+  linux-admin-password:  {type: 'string', default: 'Password123'}
+  ntp-server:            {type: 'string', default: 'pool.ntp.org'}
+  site.pp:
+    type: string
+    default: |
+      node default {
+        notify {'Puppet is working with the Puppetserver':}
+      }
+
+resources:
+
+  # This network provides access to the Internet
+  external_network:
+    description: External network   
+    type: OS::Neutron::ProviderNet
+    properties:
+      name: external_network
+      network_type: flat
+      # extnet was provided in the installer
+      physical_network: extnet
+      router_external: true
+
+  external_subnet:
+    type: OS::Neutron::Subnet
+    properties:
+      name: external_subnet
+      network_id: { get_resource: external_network }
+      cidr: 192.168.1.0/24
+      allocation_pools: [{"start": "192.168.1.25", "end": "192.168.1.35"}]
+      enable_dhcp: false
+      gateway_ip: "192.168.1.253"
+
+  edge_router:
+    type:                    OS::Neutron::Router
+    properties:
+      external_gateway_info: { network: external_network }
+      name:                  edge_router
+
+  # Our guests will connect to this network
+  internal_network0:
+    type:              OS::Neutron::Net
+    properties:
+      admin_state_up: true
+      name:            "internal_network0"
+
+  internal_subnet0:
+    type:              OS::Neutron::Subnet
+    properties:
+      name:            "internal_subnet0"
+      network:         { get_resource: internal_network0 }
+      cidr:            "192.168.102.0/24"
+      dns_nameservers: ["8.8.8.8"]
+      gateway_ip:      "192.168.102.1"
+      ip_version:      4
+
+  router_interface_0:
+    type:        OS::Neutron::RouterInterface
+    properties:
+      router_id: { get_resource: edge_router }
+      subnet:    { get_resource: internal_subnet0 }
+
+  puppetserver_sec_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      name: puppetserver_sec_group
+      rules:
+        - protocol: icmp
+          direction: ingress
+        - protocol: icmp
+          direction: egress
+        - protocol: udp
+          direction: egress
+        - protocol: tcp
+          direction: ingress
+          remote_ip_prefix: { get_attr: [internal_subnet0, cidr] }
+          port_range_min: 8140
+          port_range_max: 8140
+        - protocol: tcp
+          direction: egress
+          port_range_min: 1
+          port_range_max: 65535
+        - protocol: tcp
+          direction: ingress
+          remote_ip_prefix: 0.0.0.0/0
+          port_range_min: 22
+          port_range_max: 22
+        - protocol: tcp
+          direction: ingress
+          remote_ip_prefix: { get_attr: [internal_subnet0, cidr] }
+          port_range_min: 514
+          port_range_max: 514
+
+  puppetserver_port:
+    type:        OS::Neutron::Port
+    properties:
+      name:      "port1"
+      network:   { get_resource: internal_network0 }
+      security_groups: [ { get_resource: puppetserver_sec_group } ]
+      fixed_ips: [{"subnet": { get_resource: internal_subnet0 }, "ip_address": {get_param: puppetserver-ip}}]
+
+  puppetserver0:
+    type:       OS::Nova::Server
+    properties:
+      name:     {get_param: puppetserver}
+      flavor:   m1.medium
+      block_device_mapping_v2:
+       - delete_on_termination: true
+         image:       "centos"
+         volume_size: 10
+      networks:
+        - port: {get_resource: puppetserver_port}
+      user_data: 
+        str_replace:
+          template: |
+            #!/bin/bash
+            echo -e "minrate=5\ntimeout=500" >> /etc/yum.conf;
+            echo -e "$puppetserver-ip $puppetserver puppet" >> /etc/hosts;
+            useradd -G wheel -p $(openssl passwd -1 $password) $admin;
+            sed -i "s/^PasswordAuthentication no/PasswordAuthentication yes/g" /etc/ssh/sshd_config && systemctl restart sshd;
+            timedatectl set-timezone Australia/Sydney;
+            yum install -y ntp;
+            ntpdate $ntp-server;
+            yum install -y https://yum.puppetlabs.com/puppet5/puppet5-release-el-7.noarch.rpm;
+            yum install -y puppetserver;
+            systemctl enable puppetserver;
+            systemctl start puppetserver
+            sleep 30;
+            /opt/puppetlabs/puppet/bin/puppet config set server $puppetserver;
+            /opt/puppetlabs/puppet/bin/puppet config set reports store,log;
+            echo -e "*" > /etc/puppetlabs/puppet/autosign.conf;
+            echo -e "$site.pp" > /etc/puppetlabs/code/environments/production/manifests/site.pp;
+            echo -e "modulepath = modules:site\nconfig_version = '/bin/echo $(date +'%Y-%m-%d %T')'" > /etc/puppetlabs/code/environments/production/environment.conf
+            systemctl enable puppet;
+            yum update -y
+            mkdir /srv/log
+            chcon --reference /var/log /srv/log
+            puppet module install puppet-firewalld --version 4.3.0
+            puppet module install saz-rsyslog --version 5.0.0
+            puppet module install puppet-splunk --version 8.0.0
+            systemctl start puppet;
+          params:
+            $puppetserver:    {get_param: puppetserver}
+            $puppetserver-ip: {get_param: puppetserver-ip}
+            $admin:           {get_param: linux-admin}
+            $password:        {get_param: linux-admin-password}
+            $ntp-server:      {get_param: ntp-server}
+            $site.pp:         {get_param: site.pp}

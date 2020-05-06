@@ -1,0 +1,84 @@
+heat_template_version: rocky
+
+description: 'linux puppet client template'
+
+parameters:
+  puppetserver:          {type: 'string', default: 'puppetserver.openstacklocal'}
+  puppetserver-ip:       {type: 'string', default: '192.168.102.50'}
+  linux-admin:           {type: 'string', default: 'admin'}
+  linux-admin-password:  {type: 'string', default: 'password'}
+  ntp-server:            {type: 'string', default: 'pool.ntp.org'}
+  # Change these values for new clients
+  agent:                 {type: 'string', default: 'linux-beta.openstacklocal'}
+  agent-port-name:       {type: 'string', default: 'linuxagent1-port'}
+  agent-sec-group:       {type: 'string', default: 'linuxagent1-sec-group'}
+  agent-ip:              {type: 'string', default: '192.168.102.53'}
+
+resources:
+
+  puppetagent_sec_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      name: { get_param: agent-sec-group }
+      rules:
+        - protocol: icmp
+          direction: ingress
+        - protocol: icmp
+          direction: egress
+        - protocol: udp
+          direction: egress
+        - protocol: tcp
+          direction: egress
+          port_range_min: 1
+          port_range_max: 65535
+        - protocol: tcp
+          direction: ingress
+          port_range_min: 22
+          port_range_max: 22
+
+  agent_port:
+    type:        OS::Neutron::Port
+    properties:
+      name:      { get_param: agent-port-name }
+      security_groups: [ { get_resource: puppetagent_sec_group } ]
+      network: internal_network0
+      fixed_ips: [{"subnet": "internal_subnet0", "ip_address": {get_param: agent-ip}}]
+
+  linuxagent0:
+    type:           OS::Nova::Server
+    depends_on:     agent_port
+    properties:
+      name:         { get_param: agent }
+      flavor:       "m1.small"
+      block_device_mapping_v2:
+       - delete_on_termination: true
+         image:       "centos"
+         volume_size: 10
+      networks:
+        - port:     { get_resource: agent_port }
+      user_data:
+        str_replace:
+          template: |
+            #!/bin/bash
+            echo -e "minrate=5\ntimeout=500" >> /etc/yum.conf;
+            echo -e "$puppetserver-ip $puppetserver puppet" >> /etc/hosts;
+            useradd -G wheel -p $(openssl passwd -1 $password) $admin;
+            sed -i "s/^PasswordAuthentication no/PasswordAuthentication yes/g" /etc/ssh/sshd_config && systemctl restart sshd;
+            timedatectl set-timezone Australia/Sydney;
+            yum install -y ntp;
+            ntpdate $ntp-server;
+            yum install -y https://yum.puppetlabs.com/puppet5/puppet5-release-el-7.noarch.rpm;
+            yum install -y puppet-agent
+            systemctl enable puppet;
+            sleep 60;
+            /opt/puppetlabs/puppet/bin/puppet config set server $puppetserver;
+            yum update -y
+            systemctl start puppet;
+            sleep 120;
+            reboot
+          params:
+            $puppetserver:    {get_param: puppetserver}
+            $puppetserver-ip: {get_param: puppetserver-ip}
+            $ntp-server:      {get_param: ntp-server}
+            $admin:           {get_param: linux-admin}
+            $password:        {get_param: linux-admin-password}
