@@ -66,7 +66,7 @@ resources:
       block_device_mapping_v2:
        - delete_on_termination: true
          image:       "centos"
-         volume_size: 10
+         volume_size: 100
       networks:
         - port:     { get_resource: agent_port }
       user_data:

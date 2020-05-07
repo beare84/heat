@@ -84,6 +84,11 @@ resources:
           port_range_min: 8140
           port_range_max: 8140
         - protocol: tcp
+          direction: ingress
+          remote_ip_prefix: 192.168.1.0/24
+          port_range_min: 8140
+          port_range_max: 8140
+        - protocol: tcp
           direction: egress
           port_range_min: 1
           port_range_max: 65535
@@ -138,6 +143,7 @@ resources:
             puppet module install puppet-firewalld --version 4.3.0
             puppet module install saz-rsyslog --version 5.0.0
             puppet module install puppet-splunk --version 8.0.0
+            puppet module install puppet-selinux --version 3.2.0
             systemctl start puppet;
           params:
             $puppetserver:    {get_param: puppetserver}
