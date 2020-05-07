@@ -2,6 +2,11 @@ heat_template_version: rocky
 
 description: 'linux puppet server and core networking template'
 
+# puppet module install puppet-firewalld --version 4.3.0
+# puppet module install saz-rsyslog --version 5.0.0
+# puppet module install puppet-splunk --version 8.0.0
+# puppet module install puppet-selinux --version 3.2.0
+
 parameters:
   puppetserver:          {type: 'string', default: 'puppetserver.openstacklocal'}
   puppetserver-ip:       {type: 'string', default: '192.168.102.50'}
@@ -28,13 +33,16 @@ resources:
       physical_network: extnet
       router_external: true
 
+  # Haven't tested the allocation pool of one usable IP yet.
+  # Making the IP the same will mean you don't have to
+  # recreate your static route if it gets a different one.
   external_subnet:
     type: OS::Neutron::Subnet
     properties:
       name: external_subnet
       network_id: { get_resource: external_network }
       cidr: 192.168.1.0/24
-      allocation_pools: [{"start": "192.168.1.25", "end": "192.168.1.35"}]
+      allocation_pools: [{"start": "192.168.1.25", "end": "192.168.1.25"}]
       enable_dhcp: false
       gateway_ip: "192.168.1.253"
 
@@ -140,10 +148,6 @@ resources:
             echo -e "modulepath = modules:site\nconfig_version = '/bin/echo $(date +'%Y-%m-%d %T')'" > /etc/puppetlabs/code/environments/production/environment.conf
             systemctl enable puppet;
             yum update -y
-            puppet module install puppet-firewalld --version 4.3.0
-            puppet module install saz-rsyslog --version 5.0.0
-            puppet module install puppet-splunk --version 8.0.0
-            puppet module install puppet-selinux --version 3.2.0
             systemctl start puppet;
           params:
             $puppetserver:    {get_param: puppetserver}

@@ -1,0 +1,87 @@
+heat_template_version: rocky
+
+description: 'windows puppet client template'
+
+parameters:
+  puppetserver:          {type: 'string', default: 'puppet'}
+  puppetserver-ip:       {type: 'string', default: '192.168.102.50'}
+  win-user:              {type: 'string', default: 'user'}
+  win-user-password:     {type: 'string', default: 'password'}
+  win-admin-password:    {type: 'string', default: 'password'}
+  ntp-server:            {type: 'string', default: 'pool.ntp.org'}
+  # Change these values for new clients
+  agent:                 {type: 'string', default: 'winagent0'}
+  agent-port-name:       {type: 'string', default: 'winagent0-port'}
+  agent-sec-group:       {type: 'string', default: 'winagent0-sec-group'}
+  agent-ip:              {type: 'string', default: '192.168.102.52'}
+
+resources:
+
+  puppetagent_win_sec_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      name: puppetagent_win_sec_group
+      rules:
+        - protocol:  icmp
+          direction: ingress
+        - protocol:  icmp
+          direction: egress
+        - protocol:  udp
+          direction: egress
+        - protocol:  tcp
+          direction: egress
+          port_range_min: 1
+          port_range_max: 65535
+        - protocol:  tcp
+          direction: ingress
+          port_range_min: 3389
+          port_range_max: 3389
+
+  win_agent_port:
+    type:        OS::Neutron::Port
+    properties:
+      name:            { get_param: agent-port-name }
+      security_groups: [ { get_resource: puppetagent_win_sec_group } ]
+      network:         internal_network0
+      fixed_ips:       [{"subnet": "internal_subnet0", "ip_address": {get_param: agent-ip}}]
+
+  win-agent:
+    type:           OS::Nova::Server
+    depends_on:     win_agent_port
+    properties:
+      name:         { get_param: agent }
+      flavor:       m1.medium
+      block_device_mapping_v2:
+       - delete_on_termination: true
+         image:                 "windows"
+         volume_size:           40
+      networks:
+        - port:     {get_resource: win_agent_port}
+      metadata:
+        admin_pass: {get_param: win-admin-password}
+      user_data:
+        str_replace:
+          template: |
+            #ps1_sysnative
+            rename-computer -newname $agent
+            w32tm /config /manualpeerlist:$ntp-server /syncfromflags:manual /reliable:yes /update
+            net stop w32time
+            net start w32time
+            w32tm /resync; w32tm /resync; w32tm /resync; w32tm /resync; w32tm /resync
+            Add-Content -Path C:\Windows\System32\drivers\etc\hosts -Value "$puppetserver-ip`t$puppetserver" -Force
+            cmd /c puppet config set server $puppetserver
+            (Get-WmiObject Win32_TerminalServiceSetting -Namespace root\cimv2\TerminalServices).SetAllowTsConnections(1,1) | Out-Null
+            (Get-WmiObject -Class "Win32_TSGeneralSetting" -Namespace root\cimv2\TerminalServices -Filter "TerminalName='RDP-tcp'").SetUserAuthenticationRequired(0) | Out-Null
+            Get-NetFirewallRule -DisplayName "Remote Desktop*" | Set-NetFirewallRule -enabled true
+            $password=ConvertTo-SecureString -AsPlainText -Force $win-user-password
+            New-LocalUser -Name $win-user -Password $password; Add-LocalGroupMember -Group "Administrators" -Member $win-user
+            Disable-LocalUser -Name "Administrator"
+            $app=get-wmiobject -Class Win32_Product | where { $_.name -match "Cloudbase-Init" }; $app.Uninstall()
+            Restart-Computer -force
+          params:
+            $win-user:          {get_param: win-user}
+            $win-user-password: {get_param: win-user-password}
+            $puppetserver:      {get_param: puppetserver}
+            $puppetserver-ip:   {get_param: puppetserver-ip}
+            $ntp-server:        {get_param: ntp-server}
+            $agent:             {get_param: agent}
