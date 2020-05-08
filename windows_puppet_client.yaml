@@ -76,7 +76,7 @@ resources:
             $password=ConvertTo-SecureString -AsPlainText -Force $win-user-password
             New-LocalUser -Name $win-user -Password $password; Add-LocalGroupMember -Group "Administrators" -Member $win-user
             Disable-LocalUser -Name "Administrator"
-            $app=get-wmiobject -Class Win32_Product | where { $_.name -match "Cloudbase-Init" }; $app.Uninstall()
+            schtasks.exe /create /f /tn UninstallCloudinit /ru SYSTEM /sc ONSTART /tr "powershell.exe -executionpolicy remotesigned -command '`$app=get-wmiobject -Class Win32_Product | where { `$_.name -match \\\""Cloudbase-Init\\\"" }; `$app.Uninstall(); schtasks.exe /delete /f /tn UninstallCloudinit'"
             Restart-Computer -force
           params:
             $win-user:          {get_param: win-user}
